@@ -16,25 +16,42 @@
 | 未来公告不可见 | 发布时间晚于查询时刻的公告不参与链还原与判定 |
 | 同线路独立公告分别判断 | 每条根公告独立成链；示例中 12 路有两条同时有效的独立停运 |
 | 无法匹配的引用 | 被引用编号在整站不存在时收集到 `unmatched_references`，不影响其余判定 |
-| 同站限制 | 只沿协议+主机+端口一致的链接爬行，跨站链接跳过并在 `skipped_offsite_links` 返回 |
+| 同站限制 | 只沿与输入首页同源（协议+主机+端口一致）的链接爬行，跨站链接跳过并在 `skipped_offsite_links` 返回 |
+| 跳转同源约束 | 列表/详情的每次跳转逐一检查，目标必须与输入首页同源；跨站目标**不发出请求** |
+| 站内迁移 | 站内跳转后按**最终地址**解析相对分页/详情链接，详情来源记录最终地址 |
+| 跳转失败 | 跨站/循环/超限跳转记录到 `redirect_failures`（地址+目标+原因），本次查询 `verification_status=unverifiable`，不输出有效停运结论 |
 
 停运区间按半开 `[suspend_start, suspend_end)` 判定：查询时刻等于结束时刻即视为已失效。
 所有时间均要求带时区（ISO 8601 偏移），比较基于同一时间线瞬间。
+
+### 跳转与可核定性
+
+运营方把公告页迁到站内新地址（或页面跳往外站）时，采集行为如下：
+
+* **站内跳转（同源）**：跟随，最多 5 跳；后续相对链接以跳转后的最终地址为基准解析，
+  `list_pages_crawled` 与公告 `sources` 均记录最终地址。
+* **跨站跳转**：目标与输入首页不同源时不发出请求，记录 `redirect_failures`。
+* **循环跳转 / 超过 5 跳**：同样记录 `redirect_failures`。
+* 只要存在任一跳转失败，即说明采集可能不完整（缺失的页面也许是撤销公告），
+  响应为 `verification_status="unverifiable"` 且 `active_suspensions` 置空——
+  不输出确定的有效停运结论；`inactive_chains` / `unmatched_references` 仍返回供排查。
+* 页面上直接书写的外站链接（非跳转）照旧跳过，计入 `skipped_offsite_links`，不影响可核定性。
 
 ## 目录结构
 
 ```
 app/                 FastAPI 采集服务
-  app/models.py      Pydantic 模型（入参/出参/公告实体）
-  app/parser.py      BeautifulSoup 解析：分页 rel=next、详情链接、详情字段
-  app/crawler.py     同站分页 + 详情抓取（httpx 异步，限量/去重/错误收集）
+  app/models.py      Pydantic 模型（入参/出参/公告实体/跳转失败）
+  app/parser.py      BeautifulSoup 解析：分页 rel=next、详情链接、详情字段；同源判定
+  app/crawler.py     同站分页 + 详情抓取（httpx 异步，手动跟随跳转：同源检查/限量/去重/错误收集）
   app/engine.py      公告链还原与有效性判定（纯函数，无 IO）
   app/main.py        POST /query、GET /health
   Dockerfile
-site/                本地示例公告站（数据驱动生成纯静态 HTML）
-  build_site.py      生成 html/（3 个列表页 + 13 条详情，覆盖全部场景）
-  Dockerfile         python -m http.server 托管静态站
-tests/               22 个单元/集成测试（pytest）
+site/                本地示例公告站（数据驱动生成纯静态 HTML + 跳转规则）
+  build_site.py      生成 html/ 与 redirects.json（主列表 + 迁移栏目 + 跳转演示入口）
+  server.py          静态文件 + 跳转规则的本地服务器（仅标准库）
+  Dockerfile         打包 html/、redirects.json、server.py
+tests/               33 个单元/集成测试（pytest）
 demo/                本地与 Compose 演示脚本
 docker-compose.yml   api(8000) + notice-site(8080)
 ```
@@ -70,7 +87,9 @@ python3 -m venv --without-pip .venv
 
 ```bash
 .venv/bin/pip install pytest pytest-asyncio
-.venv/bin/python -m pytest -q      # 需先在 127.0.0.1:8080 启动示例站
+python3 site/build_site.py                       # 生成 html/ 与 redirects.json
+python3 site/server.py &                         # 集成测试需要示例站（含跳转规则）
+.venv/bin/python -m pytest -q
 ```
 
 ## 示例站点场景（查询时刻 2026-11-11 10:00 +08:00）
@@ -85,7 +104,16 @@ python3 -m venv --without-pip .venv
 | N-2026-008 | 5 路停运尚未开始 | `not_yet_effective` |
 | 009 → 011 | 40 路更正，且 011 误引用不存在的 N-2026-999 | 有效，同时报告悬空引用 |
 | N-2026-013 | 50 路整条公告查询时刻之后才发布 | `not_yet_effective` |
+| N-2026-014 | 8 路停运，详情页站内迁移（旧地址 301 至 `/archive/`） | 有效，来源记录最终地址 |
 | N-EXT-001 | 列表中的跨站链接 | 跳过，出现在 `skipped_offsite_links` |
+
+### 跳转示例入口
+
+| 入口 | 说明 | 预期 |
+| --- | --- | --- |
+| `/old/index.html` | 公告栏目站内迁移，301 至 `/bulletin/index.html`；新栏目分页为相对链接 | 跟随跳转，相对分页按最终地址解析，结果与主入口一致 |
+| `/notices/N-2026-014.html` | 详情页站内迁移，301 至 `/archive/notices/N-2026-014.html` | 跟随，`sources` 记录最终地址 |
+| `/alerts/index.html` | 跳转异常演示入口：同站地址 302 至外站、循环跳转、超长跳转链 | `verification_status=unverifiable`，`active_suspensions` 为空，三类失败均列出地址与原因 |
 
 ## 接入真实站点
 

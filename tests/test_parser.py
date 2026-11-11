@@ -40,6 +40,18 @@ def test_offsite_link_absolute_and_detected():
     assert is_same_site("http://site:8080/notices/x.html", "http://site:8080/index.html")
 
 
+def test_same_site_normalizes_default_ports_and_scheme():
+    # 缺省端口按协议默认值归一化
+    assert is_same_site("http://site/a", "http://site:80/b")
+    assert is_same_site("https://site/a", "https://site:443/b")
+    # 协议、主机、端口任一不同即不同源
+    assert not is_same_site("https://site/a", "http://site/b")
+    assert not is_same_site("http://site:8080/a", "http://site/b")
+    assert not is_same_site("http://other/a", "http://site/b")
+    # 主机名大小写不敏感
+    assert is_same_site("http://SITE:8080/a", "http://site:8080/b")
+
+
 def test_parse_suspension_detail():
     html = (HTML_DIR / "notices" / "N-2026-001.html").read_text(encoding="utf-8")
     a = parse_detail(html, "http://site:8080/notices/N-2026-001.html")

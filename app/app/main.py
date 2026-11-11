@@ -49,8 +49,14 @@ async def query(req: QueryRequest) -> QueryResponse:
 
     if crawl.errors:
         logger.warning("抓取过程出现 %d 个错误: %s", len(crawl.errors), crawl.errors[:3])
+    if crawl.redirect_failures:
+        logger.warning(
+            "出现 %d 次跳转失败，本次查询无法核定: %s",
+            len(crawl.redirect_failures),
+            [f.model_dump() for f in crawl.redirect_failures[:3]],
+        )
 
-    if not crawl.list_pages:
+    if not crawl.list_pages and not crawl.redirect_failures:
         raise HTTPException(
             status_code=502,
             detail={
@@ -59,14 +65,20 @@ async def query(req: QueryRequest) -> QueryResponse:
             },
         )
 
+    # 遇跨站/循环/超限跳转：采集不完整，本次查询标为无法核定，
+    # 不输出确定的有效停运结论（inactive/unmatched 仍返回供排查）。
+    verifiable = not crawl.redirect_failures
+
     return QueryResponse(
         index_url=req.index_url,
         query_time=req.query_time,
+        verification_status="verified" if verifiable else "unverifiable",
         list_pages_crawled=crawl.list_pages,
         detail_pages_crawled=crawl.detail_pages,
         announcements_parsed=len(crawl.announcements),
-        active_suspensions=result.active,
+        active_suspensions=result.active if verifiable else [],
         inactive_chains=result.inactive,
         unmatched_references=result.unmatched,
         skipped_offsite_links=crawl.skipped_offsite,
+        redirect_failures=crawl.redirect_failures,
     )

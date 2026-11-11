@@ -1,0 +1,74 @@
+{
+  "rules": [
+    {
+      "path": "/old/index.html",
+      "status": 301,
+      "location": "/bulletin/index.html"
+    },
+    {
+      "path": "/notices/N-2026-014.html",
+      "status": 301,
+      "location": "/archive/notices/N-2026-014.html"
+    },
+    {
+      "path": "/notices/N-EXT-002.html",
+      "status": 302,
+      "location": "http://external.example.org/notice/N-EXT-002.html"
+    },
+    {
+      "path": "/loop-a.html",
+      "status": 302,
+      "location": "/loop-b.html"
+    },
+    {
+      "path": "/loop-b.html",
+      "status": 302,
+      "location": "/loop-a.html"
+    },
+    {
+      "path": "/chain-0.html",
+      "status": 302,
+      "location": "/chain-1.html"
+    },
+    {
+      "path": "/chain-1.html",
+      "status": 302,
+      "location": "/chain-2.html"
+    },
+    {
+      "path": "/chain-2.html",
+      "status": 302,
+      "location": "/chain-3.html"
+    },
+    {
+      "path": "/chain-3.html",
+      "status": 302,
+      "location": "/chain-4.html"
+    },
+    {
+      "path": "/chain-4.html",
+      "status": 302,
+      "location": "/chain-5.html"
+    },
+    {
+      "path": "/chain-5.html",
+      "status": 302,
+      "location": "/chain-6.html"
+    },
+    {
+      "path": "/chain-6.html",
+      "status": 302,
+      "location": "/chain-7.html"
+    },
+    {
+      "path": "/chain-7.html",
+      "status": 302,
+      "location": "/chain-8.html"
+    },
+    {
+      "path": "/chain-8.html",
+      "status": 302,
+      "location": "/chain-9.html"
+    }
+  ]
+}

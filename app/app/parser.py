@@ -49,10 +49,19 @@ def _abs_url(base: str, href: str) -> str:
     return urljoin(base, href)
 
 
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    """同源三元组：协议 + 主机（小写）+ 端口（缺省取协议默认端口）。"""
+    p = urlparse(url)
+    scheme = p.scheme.lower()
+    return (scheme, (p.hostname or "").lower(), p.port or _DEFAULT_PORTS.get(scheme))
+
+
 def is_same_site(url: str, base_url: str) -> bool:
-    """同站判定：协议+主机+端口一致。"""
-    a, b = urlparse(url), urlparse(base_url)
-    return (a.scheme, a.hostname, a.port) == (b.scheme, b.hostname, b.port)
+    """同源判定：协议+主机+端口一致（缺省端口按协议默认值归一化）。"""
+    return _origin(url) == _origin(base_url)
 
 
 def parse_next_page(html: str, page_url: str) -> str | None:

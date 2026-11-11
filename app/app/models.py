@@ -29,7 +29,7 @@ class Announcement(BaseModel):
     suspend_end: datetime | None = None
     published_at: datetime
     references: list[str] = Field(default_factory=list, description="更正/撤销引用的公告编号")
-    url: str
+    url: str = Field(..., description="详情页真实来源地址（站内跳转后的最终地址）")
     title: str | None = None
 
     @field_validator("published_at")
@@ -92,15 +92,45 @@ class UnmatchedReference(BaseModel):
     kind: NoticeKind
 
 
+# 跳转失败原因（稳定取值，供调用方判断）
+REDIRECT_CROSS_SITE = "cross_site_redirect"   # 跳转目标与输入首页不同源
+REDIRECT_LOOP = "redirect_loop"               # 跳转形成循环
+REDIRECT_TOO_MANY = "too_many_redirects"      # 跳转次数超过上限
+
+
+class RedirectFailure(BaseModel):
+    """一次被拒绝/失败的跳转。出现任意一条即说明采集不完整，本次查询无法核定。"""
+
+    url: str = Field(..., description="发生跳转的地址（抓取到它时收到了跳转响应）")
+    target: str = Field(..., description="跳转目标地址（跨站目标未发出请求）")
+    reason: str = Field(
+        ...,
+        description=(
+            f"{REDIRECT_CROSS_SITE}=跨站跳转 / {REDIRECT_LOOP}=循环跳转 / "
+            f"{REDIRECT_TOO_MANY}=超过跳转上限"
+        ),
+    )
+
+
 class QueryResponse(BaseModel):
     """查询结果。"""
 
     index_url: str
     query_time: datetime
-    list_pages_crawled: list[str]
+    verification_status: str = Field(
+        ...,
+        description=(
+            "verified=采集完整可核定；unverifiable=出现跨站/循环/超限跳转，"
+            "采集不完整，本次查询无法核定，active_suspensions 置空"
+        ),
+    )
+    list_pages_crawled: list[str] = Field(
+        ..., description="实际抓取的列表页（站内跳转后记录最终地址）"
+    )
     detail_pages_crawled: int
     announcements_parsed: int
     active_suspensions: list[ActiveSuspension]
     inactive_chains: list[InactiveChain]
     unmatched_references: list[UnmatchedReference]
     skipped_offsite_links: list[str] = Field(default_factory=list)
+    redirect_failures: list[RedirectFailure] = Field(default_factory=list)
